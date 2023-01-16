@@ -21,7 +21,6 @@ import random
 import string
 # import module
 from geopy.geocoders import Nominatim
-import  streamlit_toggle as tog
 import streamlit_nested_layout
 import matplotlib
 import matplotlib.pyplot as plt
