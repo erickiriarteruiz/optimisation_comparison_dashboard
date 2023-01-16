@@ -1953,48 +1953,55 @@ with tab2:
                         
                         if file_type == 'XLSX':
 
-                            try:
+                            buffer = BytesIO()
+                            with ExcelWriter(buffer,engine='xlsxwriter') as writer:
+                            
+                                domain_dataframe.to_excel(writer,sheet_name='API Results',index=0)
+                                workbook = writer.book # Access the workbook
+                                num_columns = len(domain_dataframe.columns)
+                                # Map the column index to the corresponding letter code
 
-                                buffer = BytesIO()
-                                with ExcelWriter(buffer,engine='xlsxwriter') as writer:
-                                
-                                    domain_dataframe.to_excel(writer,sheet_name='API Results',index=0)
-                                    workbook = writer.book # Access the workbook
-                                    num_columns = len(domain_dataframe.columns)
-                                    # Map the column index to the corresponding letter code
+                                if num_columns > 26:
+                                    column_codes = []
+                                    for i in range(num_columns):
+                                        if i < 26:
+                                            column_codes.append(chr(65 + i))
+                                        else:
+                                            column_codes.append('A' + chr(65 + (i - 26)))
+                                    concatenated_codes_for_columns = '{}:{}'.format(column_codes[0], column_codes[-1])
+                                else:
                                     column_codes = [chr(65 + index) for index in range(num_columns)]
                                     concatenated_codes_for_columns = '{}:{}'.format(column_codes[0], column_codes[-1])
-                                    worksheet= writer.sheets['API Results'] 
-                                    worksheet.set_column(concatenated_codes_for_columns, 30)
-                                    last_row = domain_dataframe.iloc[-1]
-                                    total_row = domain_dataframe.iloc[-2]
 
-                                    
-                                    last_row_index = domain_dataframe.index[-1]+1
-                                    total_row_index = domain_dataframe.index[-1]
-                                    
+                                #column_codes = [chr(65 + index) for index in range(num_columns)]
+                                #concatenated_codes_for_columns = '{}:{}'.format(column_codes[0], column_codes[-1])
+                                worksheet= writer.sheets['API Results'] 
+                                worksheet.set_column(concatenated_codes_for_columns, 30)
+                                last_row = domain_dataframe.iloc[-1]
+                                total_row = domain_dataframe.iloc[-2]
 
-                                    border_bold_format = workbook.add_format({'top': True, 'bottom': True, 'bold': True})
-
-                                    # Write the last row of the dataframe to the worksheet, with the border and bold format
-                                    worksheet.write_row(last_row_index, 0, last_row, border_bold_format)
-                                    worksheet.write_row(total_row_index, 0, total_row, border_bold_format)
-
-                                    border_format = workbook.add_format({'border': 1})
-
-                        
                                 
-                                    workbook.close()
-
-                                ste.download_button(
-                                label=f"Download XLSX Report",
-                                data=buffer,
-                                file_name= f"{file_title}.xlsx",
-                                mime="application/vnd.ms-excel")
-
-                            except: 
-                                AttributeError = st.warning('Maximum limit of Selections is **26** for downloading an Excel file, you have selected over this number')
+                                last_row_index = domain_dataframe.index[-1]+1
+                                total_row_index = domain_dataframe.index[-1]
                                 
+
+                                border_bold_format = workbook.add_format({'top': True, 'bottom': True, 'bold': True})
+
+                                # Write the last row of the dataframe to the worksheet, with the border and bold format
+                                worksheet.write_row(last_row_index, 0, last_row, border_bold_format)
+                                worksheet.write_row(total_row_index, 0, total_row, border_bold_format)
+
+                                border_format = workbook.add_format({'border': 1})
+
+                    
+                            
+                                workbook.close()
+
+                            ste.download_button(
+                            label=f"Download XLSX Report",
+                            data=buffer,
+                            file_name= f"{file_title}.xlsx",
+                            mime="application/vnd.ms-excel")
 
                         if file_type == 'CSV':
                             buffer = BytesIO()
