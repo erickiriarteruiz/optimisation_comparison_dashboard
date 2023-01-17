@@ -15,3 +15,4 @@ streamlit_nested_layout==0.1.1
 statsmodels==0.13.5
 XlsxWriter == 3.0.7
 streamlit-toggle-switch == 1.0.2
+openpyxl ==  3.0.10
