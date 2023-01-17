@@ -119,6 +119,8 @@ def generate_auth(domain_name, api_secrets_dict):
     client_secret = api_secrets_dict[domain_name]["client_secret"]
     return client_id, client_secret
 
+
+
 #Function to use auth server endoiunt to get new token 
 def get_new_token(client_id, client_secret, domain_name, a):
     auth_server_url = f"https://{domain_name}.optibus.co/api/v2/token"
@@ -160,6 +162,16 @@ def get_days_of_week(get_json):
 def get_optibus_id(get_json):
     opId = get_json['scheduleSet']['optibusId']
     return opId 
+
+def get_optibus_id(token, domain_name, schedule_id):
+    api_call_headers = {'Authorization': 'Bearer ' + token}
+    api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true', headers=api_call_headers, verify=False)
+    get_json = api_call_response.json()
+    for d in get_json:
+        optibus_id = d['schedule']['optibusId']
+        dataset_id = d['dataset']['optibusId']
+    return optibus_id, dataset_id
+
 def api_services_response(token, domain_name, optibus_id):
     api_call_headers = {'Authorization': 'Bearer ' + token}
     api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedule/{optibus_id}/services', headers=api_call_headers, verify=False)
@@ -370,7 +382,54 @@ def create_generic_time_stat_list(json_data_list, string, string2, key_val):
         generic_time_list.append(result)
 
     generic_list_sum = sum(generic_time_list)
-    return  generic_list_sum     
+    return  generic_list_sum
+
+def api_meta_response(token, domain_name, schedule_id):
+    api_call_headers = {'Authorization': 'Bearer ' + token}
+
+    #Stat property list
+    stat_properties = ["crew_schedule_stats.paid_time", 
+    "crew_schedule_stats.attendance_time", 
+    "crew_schedule_stats.custom_time_definitions", 
+    "crew_schedule_stats.depot_pull_time", 
+    "crew_schedule_stats.duties_count", 
+    "crew_schedule_stats.histograms", 
+    "crew_schedule_stats.length", 
+    "crew_schedule_stats.sign_off_time", 
+    "crew_schedule_stats.sign_on_time", 
+    "crew_schedule_stats.split_count", 
+    "vehicle_schedule_stats.depot_allocations", 
+    "vehicle_schedule_stats.driving_time", 
+    "vehicle_schedule_stats.platform_time", 
+    "vehicle_schedule_stats.pvr", 
+    "crew_schedule_stats.changeover_count", 
+    "crew_schedule_stats.standby_time", 
+    "crew_schedule_stats.algorithmic_cost"]
+
+    #Initial call without parameters
+    api_call = f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true'
+
+    #Iterate and append parameters to the stat_property component of api string
+    for property in stat_properties:
+        api_call += f'&statProperties[]={property}'
+
+    api_call_response = requests.get(api_call, headers=api_call_headers, verify=False)
+
+    #OLD API STRING (QUITE DIFFICULT TO READ)
+    #api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true&statProperties[]=crew_schedule_stats.paid_time&statProperties[]=crew_schedule_stats.attendance_time&statProperties[]=crew_schedule_stats.custom_time_definitions&statProperties[]=crew_schedule_stats.depot_pull_time&statProperties[]=crew_schedule_stats.duties_count&statProperties[]=crew_schedule_stats.histograms&statProperties[]=crew_schedule_stats.length&statProperties[]=crew_schedule_stats.sign_off_time&statProperties[]=crew_schedule_stats.sign_on_time&statProperties[]=crew_schedule_stats.split_count&statProperties[]=vehicle_schedule_stats.depot_allocations&statProperties[]=vehicle_schedule_stats.driving_time&statProperties[]=vehicle_schedule_stats.platform_time&statProperties[]=vehicle_schedule_stats.pvr', headers=api_call_headers, verify=False)
+
+    get_json = api_call_response.json()
+    return get_json
+
+def create_json_list(get_services_json, token, domain_name):
+    emp_list = []
+    exclude = ['NWD', '#SCH', 'NSCH']
+    for d in get_services_json:
+        if not any(substring in d['name'] for substring in exclude):
+            emp_list.append(api_meta_response(token, domain_name, d['id']))
+
+    flattened_list = [item for sublist in emp_list for item in sublist]
+    return flattened_list
 
 
 with tab0:
@@ -502,11 +561,14 @@ with tab0:
         
         return total1, total2, delta, delta2
 
-    def sum_numeric_values_avpaid(data, value1, value2):
-        total1 = sum(d[value1] for d in data)#basline
-        total2 = sum(d[value2] for d in data)#optimsation
+    def sum_numeric_values_avpaid(data, value1, value2, filtered_data):
+        total1 = round(sum(d[value1] for d in data)/len(filtered_data))#basline
+        total2 = round(sum(d[value2] for d in data)/len(filtered_data))#optimsation
         delta =  total2 - total1
-        
+
+        #TODO: CHECK THIS CALCULATION IN FUTURE 
+
+        delta = delta/len(filtered_data)
         
         delta2 = round((delta/total1)*100,2)
         
@@ -516,6 +578,8 @@ with tab0:
         total2 = f"{int(total2)//60}:{int(total2)%60:02d}" if isinstance(total2, (int, float)) else total2
         
         return total1, total2, delta, delta2
+
+    
 
         
 
@@ -567,7 +631,7 @@ with tab0:
     pt_sum_ba, pt_sum_op, pt_del, pt_del2 = sum_numeric_values(filtered_data, 'Baseline Paid Time', 'Optimisation Paid Time')
     pb_sum_ba, pb_sum_op, pb_del, pb_del2 = sum_numeric_values(filtered_data, 'Baseline Paid Break Time', 'Optimisation Paid Break Time')
     sb_sum_ba, sb_sum_op, sb_del, sb_del2 = sum_numeric_values(filtered_data, 'Standby Time BA', 'Standby Time OP')
-    av_sum_ba, av_sum_op, av_del, av_del2 = sum_numeric_values_avpaid(filtered_data, 'Baseline Av. Paid Time', 'Optimisation Av. Paid Time')
+    av_sum_ba, av_sum_op, av_del, av_del2 = sum_numeric_values_avpaid(filtered_data, 'Baseline Av. Paid Time', 'Optimisation Av. Paid Time', filtered_data)
     ch_sum_ba, ch_sum_op, ch_del = sum_count_values(filtered_data, 'Changeover Count BA', 'Changeover Count OP')
     sp_sum_ba, sp_sum_op, sp_del = sum_count_values(filtered_data, 'Baseline Split Count', 'Optimisation Split Count')
     dc_sum_ba, dc_sum_op, dc_del = sum_count_values(filtered_data, 'Baseline Duty Count', 'Optimisation Duty Count')
@@ -983,481 +1047,790 @@ with tab1:
     if password_record == 'abc123':
         #Expander info - first always expanded 
         with st.expander('**Post Schedule to Records**', expanded=True):
-            #form create to submit record
-            with st.form('API Requst parameters'):
-            
-                #Project Name text input as can't pull it consistently from API - MUST not be blank - validation step later on on form submission
-                project_name = st.text_input('Name of Project', placeholder='Derby')
-                #Text input for URL baseline 
-                schedule_URL_baseline = st.text_input(label= 'Please type the baseline schedule URL here', placeholder='https://domain.optibus.co/project/t4bx3pnc0/schedules/oBAwkfaRv/gantt?type=duties')
-                #Text input for URL optimisation 
-                schedule_URL_optimisation = st.text_input(label= 'Please type the optimised schedule URL here', placeholder='https://domain.optibus.co/project/t4bx3pnc0/schedules/oBAwkfaRv/gantt?type=duties', key = 'b')
+            colt1, colt3 = st.columns([12, 1])
+            with colt3:
                 
-                #function to process URL into substring variables used for API 
-                domain_name_ba, schedule_id_ba , project_id_ba = process_URL(schedule_URL_baseline)
-                #//
-                domain_name_op, schedule_id_op , project_id_op = process_URL(schedule_URL_optimisation)
+                batch_mode = tog.st_toggle_switch(label="Batch Mode", 
+                        key="Key1", 
+                        default_value=False, 
+                        label_after = False, 
+                        inactive_color = '#D3D3D3', 
+                        active_color="#11567f", 
+                        track_color="#29B5E8"
+                        )
 
-                #Check if text input is not blank
-                if schedule_URL_optimisation != '':
-                    #Get id and secret based on url that has been entered 
-                    client_id_baseline , client_secret_baseline= generate_auth(domain_name_ba, api_secrets_dict)
-                    #//
-                    client_id_optimisation, client_secret_optimisation= generate_auth(domain_name_op, api_secrets_dict)
-                #Form submit button
-                submit = st.form_submit_button('Submit')
-                #IF clicked
-                if submit:
-                    #Check if project name is blank
-                    if not project_name:
-                        #Info 
-                        st.warning("**Project Name** can't be left blank")
-                    #check two conditions - firstly the project name does not match one in existing record (this is converted to lowercase for both so it is not case sensitive) - due to user input error
-                    #                     - secondly: check project id does not match one from records
-                    #check that project id matches for baseline and optimisation URL 
-                    elif project_id_ba != project_id_op:
-                        st.error('Please upload all comparisons from the **Same** project!')
-
-                    #if all other conditions are met - continue to call the API 
-                    else:
-                        #Present progress bar 
-                        my_bar = st.progress(0)
-                        for percent_complete in range(100):
-                            time.sleep(0.005)
-                            my_bar.progress(percent_complete + 1)
-
-                        ##    Function to obtain a new OAuth 2.0 token from the authentication server              
-                        ## 	Obtain a token before calling the API for the first time
-                        token_baseline = get_new_token(client_id_baseline, client_secret_baseline, domain_name_ba, 'Baseline')
-                        token_optimisation = get_new_token(client_id_optimisation, client_secret_optimisation, domain_name_op, 'Optimisation')
-
-                        #get_json_test1 = api_header_response(token_baseline, domain_name_ba, schedule_id_ba)
-                        #st.write(get_json_test1)
-                        #Example to get the optibus ID from a schedule and then use servrices endpoint
-                        #.compensationtime
-                        def get_optibus_id(token, domain_name, schedule_id):
-                            api_call_headers = {'Authorization': 'Bearer ' + token}
-                            api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true', headers=api_call_headers, verify=False)
-                            get_json = api_call_response.json()
-                            for d in get_json:
-                                optibus_id = d['schedule']['optibusId']
-                                dataset_id = d['dataset']['optibusId']
-                            return optibus_id, dataset_id
-                        optibus_id_ba, dataset_id_ba  = get_optibus_id(token_baseline, domain_name_ba, schedule_id_ba)
-                        optibus_id_op, dataset_id_op = get_optibus_id(token_optimisation, domain_name_op, schedule_id_op)
-
-                        
-
-                        
-
-                        if [d for d in data if d['Dataset ID'] == dataset_id_ba]:
-                        #validation info
-                            st.warning(f'The schedule **{project_name}** already exists in records based on sharing a common dataset_id , please submit a different project')
-                            st.stop()
-                        
-
-                        if 'status' in optibus_id_ba and optibus_id_ba['status'] == 500:
-                            url_check = 'Baseline URL'
-                            st.warning(f'There is an issue with **{url_check}**, please *Save a new version of the schedule* and try again, this is a known API issue. Please see message below for further details')
-                            st.caption(optibus_id_ba)
-                            st.stop()
-                        elif 'status' in optibus_id_op and optibus_id_op['status'] == 500:
-                            url_check = 'Optimisation URL'
-                            st.warning(f'There is an issue with **{url_check}**, please *Save a new version of the schedule* and try again, this is a known API issue. Please see message below for further details')
-                            st.caption(optibus_id_op)
+            with colt1:
+                if batch_mode == True: 
+                    info = 'Batch Import'
+                else:
+                    info = 'Single Import'
+                st.info(f'You are in **{info}** Mode')
+            #batch_mode = st.checkbox('Batch Upload Mode')
+            if batch_mode == True:
+                with st.form('Batch Upload form'):
+                    schedule_links_file = st.file_uploader('Upload your schedule links here', type='xlsx')
+                    
+                    submit_file = st.form_submit_button('Submit')
+                    if submit_file:
+                        if schedule_links_file is None:
+                            st.warning('You must upload a file')
                             st.stop()
 
-                        get_services_json_ba = api_services_response(token_baseline, domain_name_ba, optibus_id_ba)
-                        get_services_json_op = api_services_response(token_optimisation, domain_name_op, optibus_id_op)
-                        
+                        batch_df = pd.read_excel(schedule_links_file, engine= 'openpyxl', header = None)
+                        other_df = pd.DataFrame(columns =['Project Name', 'Baseline URL', 'Optimisation URL', 'Reason'])
+                        if batch_df.empty:
+                            st.write("Dataframe is empty")
+                        else:
+                            if batch_df.iloc[0,:].str.contains('http|www').any():
+                                batch_df.columns = ['Project Name', 'Baseline URL', 'Optimisation URL']
+                                st.write(batch_df)
+                            else:
+                                batch_df.columns = batch_df.iloc[0]
+                                batch_df = batch_df.iloc[1:]
+                                
+                            results_list = []
+                            bar = st.progress(0)
+                            for index, row in batch_df.iterrows():
+                                project_name = row[0]
+                                schedule_URL_baseline = row[1]
+                                schedule_URL_optimisation = row[2]
+                                domain_name_ba, schedule_id_ba , project_id_ba = process_URL(schedule_URL_baseline)
+                                domain_name_op, schedule_id_op , project_id_op = process_URL(schedule_URL_optimisation)
 
-                        #&statProperties[]=crew_schedule_stats.paid_time&statProperties[]=general_stats&statProperties[]=relief_vehicle_schedule_stats&statProperties[]=relief_vehicle_schedule_stats
-                        #st.write(get_services_json_ba)
-                        #st.write(get_services_json_ba)
+                                def generate_auth_iter(domain_name, api_secrets_dict, project_name, schedule_URL_baseline, schedule_URL_optimisation, other_df):
+                                    try:
+                                        client_id = api_secrets_dict[domain_name]["client_id"]
+                                        client_secret = api_secrets_dict[domain_name]["client_secret"]
+                                        return client_id, client_secret, other_df
+                                    except KeyError:
+                                        other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'{domain_name} API cred not defined'}, ignore_index=True)
+                                        indicator = 'Skip'
+                                        return indicator, None, other_df
 
-                        def api_meta_response(token, domain_name, schedule_id):
-                            api_call_headers = {'Authorization': 'Bearer ' + token}
-
-                            #Stat property list
-                            stat_properties = ["crew_schedule_stats.paid_time", 
-                            "crew_schedule_stats.attendance_time", 
-                            "crew_schedule_stats.custom_time_definitions", 
-                            "crew_schedule_stats.depot_pull_time", 
-                            "crew_schedule_stats.duties_count", 
-                            "crew_schedule_stats.histograms", 
-                            "crew_schedule_stats.length", 
-                            "crew_schedule_stats.sign_off_time", 
-                            "crew_schedule_stats.sign_on_time", 
-                            "crew_schedule_stats.split_count", 
-                            "vehicle_schedule_stats.depot_allocations", 
-                            "vehicle_schedule_stats.driving_time", 
-                            "vehicle_schedule_stats.platform_time", 
-                            "vehicle_schedule_stats.pvr", 
-                            "crew_schedule_stats.changeover_count", 
-                            "crew_schedule_stats.standby_time", 
-                            "crew_schedule_stats.algorithmic_cost"]
-
-                            #Initial call without parameters
-                            api_call = f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true'
-
-                            #Iterate and append parameters to the stat_property component of api string
-                            for property in stat_properties:
-                                api_call += f'&statProperties[]={property}'
-
-                            api_call_response = requests.get(api_call, headers=api_call_headers, verify=False)
-
-                            #OLD API STRING (QUITE DIFFICULT TO READ)
-                            #api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true&statProperties[]=crew_schedule_stats.paid_time&statProperties[]=crew_schedule_stats.attendance_time&statProperties[]=crew_schedule_stats.custom_time_definitions&statProperties[]=crew_schedule_stats.depot_pull_time&statProperties[]=crew_schedule_stats.duties_count&statProperties[]=crew_schedule_stats.histograms&statProperties[]=crew_schedule_stats.length&statProperties[]=crew_schedule_stats.sign_off_time&statProperties[]=crew_schedule_stats.sign_on_time&statProperties[]=crew_schedule_stats.split_count&statProperties[]=vehicle_schedule_stats.depot_allocations&statProperties[]=vehicle_schedule_stats.driving_time&statProperties[]=vehicle_schedule_stats.platform_time&statProperties[]=vehicle_schedule_stats.pvr', headers=api_call_headers, verify=False)
-
-                            get_json = api_call_response.json()
-                            return get_json
-                        
-
-                        def create_json_list(get_services_json, token, domain_name):
-                            emp_list = []
-                            exclude = ['NWD', '#SCH', 'NSCH']
-                            for d in get_services_json:
-                                if not any(substring in d['name'] for substring in exclude):
-                                    emp_list.append(api_meta_response(token, domain_name, d['id']))
-
-                            flattened_list = [item for sublist in emp_list for item in sublist]
-                            return flattened_list
-
-                        json_data_list_ba = create_json_list(get_services_json_ba, token_baseline, domain_name_ba)
-                        json_data_list_op = create_json_list(get_services_json_op, token_optimisation, domain_name_op)
-
-                       
-                        #st.write(json_data_list_op)
-
-                       
-
-                        
-
-                        ##   Call the API with the token
-                        #get_json_ba = api_header_response(token_baseline, domain_name_ba, schedule_id_ba)
-                        #get_json_op = api_header_response(token_optimisation, domain_name_op, schedule_id_op)
-
-                        
-                        
-                        
-                       
-                        
-
-                        
-
-                        
-                        
-                            # do something with d2
-                        #assign client_instance from identifying substring in key of dictionary
-                        for key in clients_dict:
-                            # check if the key is a substring of the string
-                            if key in domain_name_ba:
-                                # if it is, assign a new variable the corresponding value
-                                client_instance = clients_dict[key]
-
-                        #call functions defined earlier on to get specific data from the API - CAN ALWAYS BE UPDATED and points added 
-                        #dow_ba = get_days_of_week(get_json_ba)
-                        #dow_op = get_days_of_week(get_json_op)
-                        #opId_ba = get_optibus_id(get_json_ba)
-                        #opId_op = get_optibus_id(get_json_op)
-
-                        
-
-                        #st.write(json_data_list_ba)
-                        
+                                #If key not found in api secrets, it appends it to other Df
+                                
+                                client_id_baseline , client_secret_baseline, other_df= generate_auth_iter(domain_name_ba, api_secrets_dict, project_name, schedule_URL_baseline, schedule_URL_optimisation, other_df)
+                                client_id_optimisation, client_secret_optimisation, other_df= generate_auth_iter(domain_name_op, api_secrets_dict,  project_name, schedule_URL_baseline, schedule_URL_optimisation, other_df)
+                                other_df = other_df.drop_duplicates(keep='first')
+                                if client_id_baseline and client_id_optimisation != 'Skip':
+                                #Function to get client_id and secret based on the domain name key pasted in the URL
 
 
+                                    token_baseline = get_new_token(client_id_baseline, client_secret_baseline, domain_name_ba, 'Baseline')
+                                    token_optimisation = get_new_token(client_id_optimisation, client_secret_optimisation, domain_name_op, 'Optimisation')
+                                    optibus_id_ba, dataset_id_ba  = get_optibus_id(token_baseline, domain_name_ba, schedule_id_ba)
+                                    optibus_id_op, dataset_id_op = get_optibus_id(token_optimisation, domain_name_op, schedule_id_op)
+                                    #If daraset_id in records it appends it to other_Df
+                                    if [d for d in data if d['Dataset ID'] == dataset_id_ba]:
+                                        other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'{dataset_id_ba} exists'},ignore_index=True)
+                                    else:
+                                        get_services_json_ba = api_services_response(token_baseline, domain_name_ba, optibus_id_ba)
+                                        get_services_json_op = api_services_response(token_optimisation, domain_name_op, optibus_id_op)
 
-                        #json_data_list_ba = create_json_list(get_services_json_ba, token_baseline, domain_name_ba)
-                        #json_data_list_op = create_json_list(get_services_json_op, token_optimisation, domain_name_op)
+                                        
+
+                                        get_services_json_ba = api_services_response(token_baseline, domain_name_ba, optibus_id_ba)
+                                        get_services_json_op = api_services_response(token_optimisation, domain_name_op, optibus_id_op)
+
+                              
+
+                                        json_data_list_ba = create_json_list(get_services_json_ba, token_baseline, domain_name_ba)
+                                        json_data_list_op = create_json_list(get_services_json_op, token_optimisation, domain_name_op)
+
+                                        def create_mandatory_time_stat_list(json_data_list, string, string2, key_val, other_df):
+                                            # List to store the results
+                                            generic_time_list = []
+
+                                            # Iterate through the list of dictionaries
+                                            for sch_d in json_data_list:
+                                                # Access the value of the 'list_key' key
+                                                list_value = sch_d['service']['daysOfWeek']
+
+                                                # Get the length of the list
+                                                list_length = len(list_value)
+
+                                                try:
+                                                # Multiply the value of the 'other_key' key by the length of the list
+                                                    result = sch_d['service']['stats'][key_val][string] * list_length
+                                                    # Append the result to the result list
+                                                    generic_time_list.append(result)
+                                                except KeyError:
+                                                    other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'[{key_val}][{string}] Not found in {list_value}'},ignore_index=True)
+                                                    generic_time_list.append(0)
+
+                                            if len(generic_time_list) !=0:
+                                                generic_list_sum = sum(generic_time_list)
+                                            else: 
+                                                generic_list_sum = 0
+                                            return  generic_list_sum, other_df
+
+                                        def create_paid_break_time_list(json_data_list, other_df):
+                                            try:
+                                                result = []
+                                                for d in json_data_list:
+                                                    inner_list = []
+                                                    for l in d['service']['stats']['crew_schedule_stats']['custom_time_definitions']:
+                                                        if l['name']=='Paid Break':
+                                                            inner_list.append(l['value'])
+                                                    result.append(sum(inner_list))
+
+                                                result_with_service = sum([x * y for x, y in zip(result, [len(sch_d['service']['daysOfWeek']) for sch_d in json_data_list])])
+
+                                            except KeyError:
+                                                other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'[custom_time_definitions][paid_break] Not found'},ignore_index=True)
+                                                result.append(0)
+                                                result_with_service = sum([x * y for x, y in zip(result, [len(sch_d['service']['daysOfWeek']) for sch_d in json_data_list])])
+
+                                            return result_with_service, other_df
 
 
-                        
-                        #BASELINE : https://arriva-uk-bus-northwest.optibus.co/project/da336nrgv/schedules/EvltiNwWMS/gantt?type=duties
-                        #OPTIMISATION: https://arriva-uk-bus-northwest.optibus.co/project/da336nrgv/schedules/bBIr4mZwjT/gantt?type=duties
-                        #Baseline is inserting two service groups and optimisation inserting 3, so problematic as calculations are wrong, count number of list elements to match to mitigate this 
-                       
+                                        paid_time_sum_ba, other_df = create_mandatory_time_stat_list(json_data_list_ba, 'paid_time', 'Baseline','crew_schedule_stats',other_df)
+                                        paid_time_sum_op, other_df = create_mandatory_time_stat_list(json_data_list_op, 'paid_time', 'Optimisation','crew_schedule_stats',other_df)
 
-                        def catch_service_lists(json_data_list, key, key2):
-                            result = []
-                            for d in json_data_list:
-                                result.extend(d.get(key, {}).get(key2, []))
-                            return result
+                                        duties_count_sum_ba, other_df = create_mandatory_time_stat_list(json_data_list_ba, 'duties_count', 'Baseline','crew_schedule_stats',other_df)
+                                        duties_count_sum_op, other_df = create_mandatory_time_stat_list(json_data_list_op, 'duties_count', 'Optimisation','crew_schedule_stats',other_df)
 
-                        check_serv_ba = catch_service_lists(json_data_list_ba, 'service', 'daysOfWeek')
-                        check_serv_op = catch_service_lists(json_data_list_op, 'service', 'daysOfWeek')
+                                        platform_time_sum_ba, other_df = create_mandatory_time_stat_list(json_data_list_ba, 'platform_time', 'Baseline','vehicle_schedule_stats',other_df)
+                                        platform_time_sum_op, other_df = create_mandatory_time_stat_list(json_data_list_op, 'platform_time', 'Optimisation','vehicle_schedule_stats',other_df)
+                                        
+                                        paid_break_ba, other_df = create_paid_break_time_list(json_data_list_ba, other_df)
+                                        paid_break_op, other_df = create_paid_break_time_list(json_data_list_op, other_df)
 
-                        def return_assciated_Serv_days(check_serv, string):
-                            master_list = [2,3,4,5,6,7,1]
-                            master_dict =  service_days_dict={1:'Sun',2:'Mon',3:'Tue',4:'Wed',5:'Thur',6:'Fri',7:'Sat'}
-                            missing_elements = set(master_list) - set(check_serv)
-                            missing_days = [master_dict[x] for x in missing_elements] 
-                            return missing_days, string
+                                        
 
-                        missing_days_ba, identifier_ba = return_assciated_Serv_days(check_serv_ba, 'Baseline')
-                        missing_days_op, identifier_op = return_assciated_Serv_days(check_serv_ba, 'Optimisation')
-
-
-                        if len(missing_days_ba) != 0:
-                            st.error(f"API Error Occuring for **{missing_days_ba}** on **{identifier_ba}** schedule for **{project_name}**")
-                            st.stop()
-                        elif len(missing_days_ba) != 0:
-                            st.error(f"API Error Occuring for **{missing_days_op}** on **{identifier_op}** schedule for **{project_name}**")
-                            st.stop()
-
-                       
-
-                        
-                        #CONDITION THAT CHECKS - THIS SHOULD WORK AS FUNCTION ABOVE DROPS DICTS CONTAINING THE ERROR 500 
-
-                        #sch_d['service']['daysOfWeek']
-
-                        if len(json_data_list_ba)!= len(json_data_list_op):
-                            st.error('Number of Service Days do not match between benchmark and optimisation, this could be that one of the api requests is erroring on a specific day')
-                            st.stop()
-
-                        
-
-                        
-                        
-
-                        paid_time_list_ba, paid_time_list_sum_ba = create_paid_time_list(json_data_list_ba)
-                        paid_time_list_op, paid_time_list_sum_op = create_paid_time_list(json_data_list_op)
-
-                        
-
-                        #TODO: Get split counts and sum for all days
-                        #TODO: GET paid break counts - may have to iterate through twice
+                                        for key in clients_dict:
+                                            # check if the key is a substring of the string
+                                            if key in domain_name_ba:
+                                                # if it is, assign a new variable the corresponding value
+                                                client_instance = clients_dict[key]
+                                            
 
 
 
-                        split_count_list_ba, split_count_list_sum_ba = create_split_count_list(json_data_list_ba)
-                        split_count_list_op, split_count_list_sum_op = create_split_count_list(json_data_list_op)
-                        
+                                        all_mandatory_variables = [paid_time_sum_ba !=0, paid_time_sum_op !=0, duties_count_sum_ba !=0, duties_count_sum_op !=0, platform_time_sum_ba!=0, platform_time_sum_op!=0, paid_break_ba !=0, paid_break_op!=0]
+                                        
+                                        
+                                        other_df = other_df.groupby(other_df.columns.difference(['Reason']).tolist(), as_index = False).agg({'Reason': sum})
+
+                                        if all(all_mandatory_variables):
+                                            duty_count_diff = calculate_duty_diff(duties_count_sum_ba, duties_count_sum_op)
+                                            paid_time_diff = calculate_paid_time_diff(paid_time_sum_ba, paid_time_sum_op)
+
+                                            avg_paid_time_ba = calculate_avg_paid_time(paid_time_sum_ba,duties_count_sum_ba)
+                                            avg_paid_time_op = calculate_avg_paid_time(paid_time_sum_op,duties_count_sum_op)
+                                            
+                                            efficiency_ba = get_sch_eff(platform_time_sum_ba, paid_time_sum_ba)
+                                            efficiency_op = get_sch_eff(platform_time_sum_op, paid_time_sum_op)
+                                            eff_diff = calculate_eff_diff(efficiency_ba, efficiency_op)
+
+                                            schedule_id_list = [item['scheduleId'] for item in json_data_list_ba]
+
+                            
+
+                                            def api_header_response_tp(token, domain_name, schedule_id_list):
+                                                api_call_headers = {'Authorization': 'Bearer ' + token}
+                                                for i in range(len(schedule_id_list)):
+                                                    api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedule/{schedule_id_list[i]}?needStats=true', headers=api_call_headers, verify=False)
+                                                    get_json = api_call_response.json()
+                                                    if 'status' not in get_json:
+                                                        return get_json
+                                                        break
+                                                return None
+                                            
+                                            get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
+
+                                            def get_depot_from_api(get_json, other_df):
+                                                try:
+                                                    depot_item = []
+                                                    for d in get_json['stats']['vehicle_schedule_stats']['depot_allocations']:
+                                                        depot_item.append(d)
+                                                    if depot_item and len(depot_item)>0:
+                                                        return depot_item[0][0], other_df
+
+                                                    #DO BETTER MAYBE GET FIRST ITEM FROM ANY D IN JSON 
+                                                except KeyError:
+                                                    other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'[vehicle_schedule_stats][depot_allocations] Not found'}, ignore_index=True)
+                                                    return 'None', other_df
+                                                except TypeError:
+                                                    other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'[vehicle_schedule_stats][depot_allocations] Not found'}, ignore_index=True)
+                                                    return 'None', other_df
 
 
 
+                                        
 
-                        paid_break_sum_ba = create_paid_break_time_list(json_data_list_ba)
-                        paid_break_sum_op = create_paid_break_time_list(json_data_list_op)
-                       
-                       
-                        
+                                            depot_item_ba, other_df = get_depot_from_api(get_json_tp, other_df)
 
-                        #values = [inner_dict["value"] for outer_dict in json_data_list for inner_dict in outer_dict['stats']['crew_schedule_stats']['custom_time_definitions'] if inner_dict["name"] == 'Paid Break']
+                                            if depot_item_ba != 'None':
 
+                                                dict_depot, stop_name ,lat, long = get_stop_details_from_depot_id(get_json_tp, depot_item_ba)
 
-                        
-                        
+                                                def get_county_from_coords(lat, long):
+                                                    geolocator = Nominatim(user_agent="geoapiExercises")
+                                                    # Latitude & Longitude input
+                                                    Latitude = str(lat)
+                                                    Longitude = str(long)
+                                                    location = geolocator.reverse(Latitude+","+Longitude)
+                                                    address = location.raw['address']
+                                                    # traverse the data
+                                                
+                                                    country = address.get('country', '')
+                                                    return country
 
-                       
-
-                        platform_time_list_ba, platform_time_list_sum_ba = create_platform_time_list(json_data_list_ba)
-                        platform_time_list_op, platform_time_list_sum_op = create_platform_time_list(json_data_list_op)
-
-
-                        duty_count_list_ba, duty_count_list_sum_ba = create_duty_count_list(json_data_list_ba)
-                        duty_count_list_op, duty_count_list_sum_op = create_duty_count_list(json_data_list_op)
+                                                country = get_county_from_coords(lat, long)
 
                                 
-                        avg_paid_time_ba = calculate_avg_paid_time(paid_time_list_sum_ba,duty_count_list_sum_ba)
-                        avg_paid_time_op = calculate_avg_paid_time(paid_time_list_sum_op,duty_count_list_sum_op)
-                        
-                        efficiency_ba = get_sch_eff(platform_time_list_sum_ba, paid_time_list_sum_ba)
-                        efficiency_op = get_sch_eff(platform_time_list_sum_op, paid_time_list_sum_op)
-                        eff_diff = calculate_eff_diff(efficiency_ba, efficiency_op)
-                        duty_count_diff = calculate_duty_diff(duty_count_list_sum_ba, duty_count_list_sum_op)
-                        pt_diff = calculate_paid_time_diff(paid_time_list_sum_ba, paid_time_list_sum_op)
+
+                                
+
+                                                region = get_region_from_country(emea_str, 'EMEA', country)
+
+                                                def create_split_count_list_app(json_data_list):
+                                                    split_count_list = []
+                                                    for sch_d in json_data_list:
+                                                        try:
+                                                            split_count = sch_d['service']['stats']['crew_schedule_stats']['split_count'] * len(sch_d['service']['daysOfWeek'])
+                                                        except KeyError:
+                                                            split_count = 0
+                                                        split_count_list.append(split_count)
+
+                                                    split_count_list_sum = sum(split_count_list)
+                                                    return split_count_list_sum
+
+                                                split_count_list_sum_ba = create_split_count_list_app(json_data_list_ba)
+                                                split_count_list_sum_op = create_split_count_list_app(json_data_list_op)
+
+                                                def create_other_time_stat_list(json_data_list, string, string2, key_val):
+                                                    # List to store the results
+                                                    generic_time_list = []
+
+                                                    # Iterate through the list of dictionaries
+                                                    for sch_d in json_data_list:
+                                                        # Access the value of the 'list_key' key
+                                                        list_value = sch_d['service']['daysOfWeek']
+
+                                                        # Get the length of the list
+                                                        list_length = len(list_value)
+
+                                                        try:
+                                                        # Multiply the value of the 'other_key' key by the length of the list
+                                                            result = sch_d['service']['stats'][key_val][string] * list_length
+                                                            # Append the result to the result list
+                                                            generic_time_list.append(result)
+                                                        except KeyError:
+                                                            
+                                                            generic_time_list.append(0)
+
+                                                    if len(generic_time_list) !=0:
+                                                        generic_list_sum = sum(generic_time_list)
+                                                    else: 
+                                                        generic_list_sum = 0
+                                                    return  generic_list_sum
+
+                                                spread_list_sum_ba = create_other_time_stat_list(json_data_list_ba, 'length', 'Baseline','crew_schedule_stats')
+                                                spread_list_sum_op = create_other_time_stat_list(json_data_list_op, 'length', 'Optimisation','crew_schedule_stats')
+
+                                                attendance_time_list_sum_ba = create_other_time_stat_list(json_data_list_ba, 'attendance_time', 'Baseline','crew_schedule_stats')
+                                                attendance_time_list_sum_op = create_other_time_stat_list(json_data_list_op, 'attendance_time', 'Optimisation','crew_schedule_stats')
+
+
+
+                                                driving_time_list_sum_ba = create_other_time_stat_list(json_data_list_ba, 'driving_time', 'Baseline','vehicle_schedule_stats')
+                                                driving_time_list_sum_op = create_other_time_stat_list(json_data_list_op, 'driving_time', 'Optimisation','vehicle_schedule_stats')
+
+                                                depot_pull_time_list_sum_ba = create_other_time_stat_list(json_data_list_ba, 'depot_pull_time', 'Baseline','crew_schedule_stats')
+                                                depot_pull_time_list_sum_op = create_other_time_stat_list(json_data_list_op, 'depot_pull_time', 'Optimisation','crew_schedule_stats')
+
+                                                sign_on_time_list_sum_ba = create_other_time_stat_list(json_data_list_ba, 'sign_on_time', 'Baseline','crew_schedule_stats')
+                                                sign_on_time_list_sum_op = create_other_time_stat_list(json_data_list_op, 'sign_on_time', 'Optimisation','crew_schedule_stats')
+
+                                                sign_off_time_list_sum_ba = create_other_time_stat_list(json_data_list_ba, 'sign_off_time', 'Baseline','crew_schedule_stats')
+                                                sign_off_time_list_sum_op = create_other_time_stat_list(json_data_list_op, 'sign_off_time', 'Optimisation','crew_schedule_stats')
+
+                                                changeover_count_sum_ba = create_other_time_stat_list(json_data_list_ba,'changeover_count', 'Baseline', 'crew_schedule_stats')
+                                                changeover_count_sum_op = create_other_time_stat_list(json_data_list_op,'changeover_count', 'Baseline', 'crew_schedule_stats')
+                                                standby_time_sum_ba = create_other_time_stat_list(json_data_list_ba, 'standby_time', 'Baseline', 'crew_schedule_stats')
+                                                standby_time_sum_op = create_other_time_stat_list(json_data_list_op, 'standby_time', 'Baseline', 'crew_schedule_stats')
+                                                algo_cost_sum_ba = create_other_time_stat_list(json_data_list_ba,'algorithmic_cost' , 'Baseline', 'crew_schedule_stats')
+                                                algo_cost_sum_op = create_other_time_stat_list(json_data_list_op,'algorithmic_cost' , 'Baseline', 'crew_schedule_stats')
+
+                                                def get_pvr(json_data_list, string, key_val):
+
+                                                    try:
+                                                    # List to store the results
+                                                        result = max(d['service']['stats'][key_val][string] for d in json_data_list)
+                                                    except KeyError:
+                                                        result = 0
+                                                        st.warning(f'We have had to assume this {string} is 0 due to key not being found')
+
+                                                    return  result
+
+                                                pvr_max = get_pvr(json_data_list_op, 'pvr', 'vehicle_schedule_stats')
+
+                                                
+                                                
+                                                results_list.append([project_name, project_id_ba,schedule_URL_baseline, duties_count_sum_ba,paid_time_sum_ba, avg_paid_time_ba,  platform_time_sum_ba,  schedule_URL_optimisation,  duties_count_sum_op, paid_time_sum_op,avg_paid_time_op,  platform_time_sum_op , eff_diff,  duty_count_diff, paid_time_diff, domain_name_ba,client_instance, optibus_id_ba,  paid_break_ba, paid_break_op, split_count_list_sum_ba,split_count_list_sum_op,stop_name ,lat, long, country, region,  spread_list_sum_ba, spread_list_sum_op, attendance_time_list_sum_ba,
+                                attendance_time_list_sum_op,
+                                driving_time_list_sum_ba,
+                                driving_time_list_sum_op,
+                                depot_pull_time_list_sum_ba,
+                                depot_pull_time_list_sum_op,
+                                sign_on_time_list_sum_ba,
+                                sign_on_time_list_sum_op,
+                                sign_off_time_list_sum_ba,
+                                sign_off_time_list_sum_op, 
+                                dataset_id_ba, 
+                                pvr_max, 
+                                changeover_count_sum_ba, 
+                                changeover_count_sum_op, 
+                                standby_time_sum_ba, standby_time_sum_op, 
+                                algo_cost_sum_ba, 
+                                algo_cost_sum_op])
+
+                                                bar.progress((index+1)/len(batch_df))
+
+                          
+
+
+
+                            get_post_row_index = len(data)+2
+                            projects_list = [inner_list[0] +' - ' + inner_list[16] for inner_list in results_list]
+                            sheet.insert_rows(results_list, get_post_row_index)
+                            st.success(f'Successfully Inserted **{len([x for x in results_list if type(x) == list])}** Entries: {projects_list}')
+                            if not other_df.empty:
+                                with st.expander(f'See Results which failed: **{len(other_df)}**'):
+                            
+                            
+                                    st.write(other_df)
+
+                            
+            else: 
+
+                #form create to submit record
+                with st.form('API Requst parameters'):
+                
+                    #Project Name text input as can't pull it consistently from API - MUST not be blank - validation step later on on form submission
+                    project_name = st.text_input('Name of Project', placeholder='Derby')
+                    #Text input for URL baseline 
+                    schedule_URL_baseline = st.text_input(label= 'Please type the baseline schedule URL here', placeholder='https://domain.optibus.co/project/t4bx3pnc0/schedules/oBAwkfaRv/gantt?type=duties')
+                    #Text input for URL optimisation 
+                    schedule_URL_optimisation = st.text_input(label= 'Please type the optimised schedule URL here', placeholder='https://domain.optibus.co/project/t4bx3pnc0/schedules/oBAwkfaRv/gantt?type=duties', key = 'b')
+                    
+                    #function to process URL into substring variables used for API 
+                    domain_name_ba, schedule_id_ba , project_id_ba = process_URL(schedule_URL_baseline)
+                    #//
+                    domain_name_op, schedule_id_op , project_id_op = process_URL(schedule_URL_optimisation)
+
+                    #Check if text input is not blank
+                    if schedule_URL_optimisation != '':
+                        #Get id and secret based on url that has been entered 
+                        client_id_baseline , client_secret_baseline= generate_auth(domain_name_ba, api_secrets_dict)
+                        #//
+                        client_id_optimisation, client_secret_optimisation= generate_auth(domain_name_op, api_secrets_dict)
+                    #Form submit button
+                    submit = st.form_submit_button('Submit')
+                    #IF clicked
+                    if submit:
+                        #Check if project name is blank
+                        if not project_name:
+                            #Info 
+                            st.warning("**Project Name** can't be left blank")
+                        #check two conditions - firstly the project name does not match one in existing record (this is converted to lowercase for both so it is not case sensitive) - due to user input error
+                        #                     - secondly: check project id does not match one from records
+                        #check that project id matches for baseline and optimisation URL 
+                        elif project_id_ba != project_id_op:
+                            st.error('Please upload all comparisons from the **Same** project!')
+
+                        #if all other conditions are met - continue to call the API 
+                        else:
+                            #Present progress bar 
+                            my_bar = st.progress(0)
+                            for percent_complete in range(100):
+                                time.sleep(0.005)
+                                my_bar.progress(percent_complete + 1)
+
+                            ##    Function to obtain a new OAuth 2.0 token from the authentication server              
+                            ## 	Obtain a token before calling the API for the first time
+                            token_baseline = get_new_token(client_id_baseline, client_secret_baseline, domain_name_ba, 'Baseline')
+                            token_optimisation = get_new_token(client_id_optimisation, client_secret_optimisation, domain_name_op, 'Optimisation')
+
+                            #get_json_test1 = api_header_response(token_baseline, domain_name_ba, schedule_id_ba)
+                            #st.write(get_json_test1)
+                            #Example to get the optibus ID from a schedule and then use servrices endpoint
+                            #.compensationtime
+                            
+                            optibus_id_ba, dataset_id_ba  = get_optibus_id(token_baseline, domain_name_ba, schedule_id_ba)
+                            optibus_id_op, dataset_id_op = get_optibus_id(token_optimisation, domain_name_op, schedule_id_op)
+                            
+
+                            if [d for d in data if d['Dataset ID'] == dataset_id_ba]:
+                            #validation info
+                                st.warning(f'The schedule **{project_name}** already exists in records based on sharing a common dataset_id , please submit a different project')
+                                st.stop()
+                            
+
+                            if 'status' in optibus_id_ba and optibus_id_ba['status'] == 500:
+                                url_check = 'Baseline URL'
+                                st.warning(f'There is an issue with **{url_check}**, please *Save a new version of the schedule* and try again, this is a known API issue. Please see message below for further details')
+                                st.caption(optibus_id_ba)
+                                st.stop()
+                            elif 'status' in optibus_id_op and optibus_id_op['status'] == 500:
+                                url_check = 'Optimisation URL'
+                                st.warning(f'There is an issue with **{url_check}**, please *Save a new version of the schedule* and try again, this is a known API issue. Please see message below for further details')
+                                st.caption(optibus_id_op)
+                                st.stop()
+
+                            get_services_json_ba = api_services_response(token_baseline, domain_name_ba, optibus_id_ba)
+                            get_services_json_op = api_services_response(token_optimisation, domain_name_op, optibus_id_op)
+                            
+
+                            #&statProperties[]=crew_schedule_stats.paid_time&statProperties[]=general_stats&statProperties[]=relief_vehicle_schedule_stats&statProperties[]=relief_vehicle_schedule_stats
+                            #st.write(get_services_json_ba)
+                            #st.write(get_services_json_ba)
+
+                            def api_meta_response(token, domain_name, schedule_id):
+                                api_call_headers = {'Authorization': 'Bearer ' + token}
+
+                                #Stat property list
+                                stat_properties = ["crew_schedule_stats.paid_time", 
+                                "crew_schedule_stats.attendance_time", 
+                                "crew_schedule_stats.custom_time_definitions", 
+                                "crew_schedule_stats.depot_pull_time", 
+                                "crew_schedule_stats.duties_count", 
+                                "crew_schedule_stats.histograms", 
+                                "crew_schedule_stats.length", 
+                                "crew_schedule_stats.sign_off_time", 
+                                "crew_schedule_stats.sign_on_time", 
+                                "crew_schedule_stats.split_count", 
+                                "vehicle_schedule_stats.depot_allocations", 
+                                "vehicle_schedule_stats.driving_time", 
+                                "vehicle_schedule_stats.platform_time", 
+                                "vehicle_schedule_stats.pvr", 
+                                "crew_schedule_stats.changeover_count", 
+                                "crew_schedule_stats.standby_time", 
+                                "crew_schedule_stats.algorithmic_cost"]
+
+                                #Initial call without parameters
+                                api_call = f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true'
+
+                                #Iterate and append parameters to the stat_property component of api string
+                                for property in stat_properties:
+                                    api_call += f'&statProperties[]={property}'
+
+                                api_call_response = requests.get(api_call, headers=api_call_headers, verify=False)
+
+                                #OLD API STRING (QUITE DIFFICULT TO READ)
+                                #api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedules/meta?scheduleIds[]={schedule_id}&includeHidden=true&includeDeleted=true&statProperties[]=crew_schedule_stats.paid_time&statProperties[]=crew_schedule_stats.attendance_time&statProperties[]=crew_schedule_stats.custom_time_definitions&statProperties[]=crew_schedule_stats.depot_pull_time&statProperties[]=crew_schedule_stats.duties_count&statProperties[]=crew_schedule_stats.histograms&statProperties[]=crew_schedule_stats.length&statProperties[]=crew_schedule_stats.sign_off_time&statProperties[]=crew_schedule_stats.sign_on_time&statProperties[]=crew_schedule_stats.split_count&statProperties[]=vehicle_schedule_stats.depot_allocations&statProperties[]=vehicle_schedule_stats.driving_time&statProperties[]=vehicle_schedule_stats.platform_time&statProperties[]=vehicle_schedule_stats.pvr', headers=api_call_headers, verify=False)
+
+                                get_json = api_call_response.json()
+                                return get_json
+                            
+
+                            def create_json_list(get_services_json, token, domain_name):
+                                emp_list = []
+                                exclude = ['NWD', '#SCH', 'NSCH']
+                                for d in get_services_json:
+                                    if not any(substring in d['name'] for substring in exclude):
+                                        emp_list.append(api_meta_response(token, domain_name, d['id']))
+
+                                flattened_list = [item for sublist in emp_list for item in sublist]
+                                return flattened_list
+
+                            json_data_list_ba = create_json_list(get_services_json_ba, token_baseline, domain_name_ba)
+                            json_data_list_op = create_json_list(get_services_json_op, token_optimisation, domain_name_op)
 
                         
+                            
+                                # do something with d2
+                            #assign client_instance from identifying substring in key of dictionary
+                            for key in clients_dict:
+                                # check if the key is a substring of the string
+                                if key in domain_name_ba:
+                                    # if it is, assign a new variable the corresponding value
+                                    client_instance = clients_dict[key]
+
+                    
+
+                            def catch_service_lists(json_data_list, key, key2):
+                                result = []
+                                for d in json_data_list:
+                                    result.extend(d.get(key, {}).get(key2, []))
+                                return result
+
+                            check_serv_ba = catch_service_lists(json_data_list_ba, 'service', 'daysOfWeek')
+                            check_serv_op = catch_service_lists(json_data_list_op, 'service', 'daysOfWeek')
+
+                            def return_assciated_Serv_days(check_serv, string):
+                                master_list = [2,3,4,5,6,7,1]
+                                master_dict =  service_days_dict={1:'Sun',2:'Mon',3:'Tue',4:'Wed',5:'Thur',6:'Fri',7:'Sat'}
+                                missing_elements = set(master_list) - set(check_serv)
+                                missing_days = [master_dict[x] for x in missing_elements] 
+                                return missing_days, string
+
+                            missing_days_ba, identifier_ba = return_assciated_Serv_days(check_serv_ba, 'Baseline')
+                            missing_days_op, identifier_op = return_assciated_Serv_days(check_serv_ba, 'Optimisation')
+
+
+                            if len(missing_days_ba) != 0:
+                                st.error(f"API Error Occuring for **{missing_days_ba}** on **{identifier_ba}** schedule for **{project_name}**")
+                                st.stop()
+                            elif len(missing_days_ba) != 0:
+                                st.error(f"API Error Occuring for **{missing_days_op}** on **{identifier_op}** schedule for **{project_name}**")
+                                st.stop()
 
                         
 
-                        #Need to consider other regions
+                            
+                            #CONDITION THAT CHECKS - THIS SHOULD WORK AS FUNCTION ABOVE DROPS DICTS CONTAINING THE ERROR 500 
 
-                      
+                            #sch_d['service']['daysOfWeek']
+
+                            if len(json_data_list_ba)!= len(json_data_list_op):
+                                st.error('Number of Service Days do not match between benchmark and optimisation, this could be that one of the api requests is erroring on a specific day')
+                                st.stop()
+
+                            
+
+                            
+                            
+
+                            paid_time_list_ba, paid_time_list_sum_ba = create_paid_time_list(json_data_list_ba)
+                            paid_time_list_op, paid_time_list_sum_op = create_paid_time_list(json_data_list_op)
+
+                            
+
+                            #TODO: Get split counts and sum for all days
+                            #TODO: GET paid break counts - may have to iterate through twice
+
+
+
+                            split_count_list_ba, split_count_list_sum_ba = create_split_count_list(json_data_list_ba)
+                            split_count_list_op, split_count_list_sum_op = create_split_count_list(json_data_list_op)
+                            
+
+
+
+
+                            paid_break_sum_ba = create_paid_break_time_list(json_data_list_ba)
+                            paid_break_sum_op = create_paid_break_time_list(json_data_list_op)
+                        
+                        
+                            
+
+                            #values = [inner_dict["value"] for outer_dict in json_data_list for inner_dict in outer_dict['stats']['crew_schedule_stats']['custom_time_definitions'] if inner_dict["name"] == 'Paid Break']
+
+
+                            
+                            
+
+                        
+
+                            platform_time_list_ba, platform_time_list_sum_ba = create_platform_time_list(json_data_list_ba)
+                            platform_time_list_op, platform_time_list_sum_op = create_platform_time_list(json_data_list_op)
+
+
+                            duty_count_list_ba, duty_count_list_sum_ba = create_duty_count_list(json_data_list_ba)
+                            duty_count_list_op, duty_count_list_sum_op = create_duty_count_list(json_data_list_op)
+
+                                    
+                            avg_paid_time_ba = calculate_avg_paid_time(paid_time_list_sum_ba,duty_count_list_sum_ba)
+                            avg_paid_time_op = calculate_avg_paid_time(paid_time_list_sum_op,duty_count_list_sum_op)
+                            
+                            efficiency_ba = get_sch_eff(platform_time_list_sum_ba, paid_time_list_sum_ba)
+                            efficiency_op = get_sch_eff(platform_time_list_sum_op, paid_time_list_sum_op)
+                            eff_diff = calculate_eff_diff(efficiency_ba, efficiency_op)
+                            duty_count_diff = calculate_duty_diff(duty_count_list_sum_ba, duty_count_list_sum_op)
+                            pt_diff = calculate_paid_time_diff(paid_time_list_sum_ba, paid_time_list_sum_op)
+
+                            
+
+                            
+
+                            #Need to consider other regions
+
+                        
+                    
+
+                        
+
+
+                            spread_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'length', 'Baseline','crew_schedule_stats')
+                            spread_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'length', 'Optimisation','crew_schedule_stats')
+
+                            attendance_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'attendance_time', 'Baseline','crew_schedule_stats')
+                            attendance_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'attendance_time', 'Optimisation','crew_schedule_stats')
+
+
+
+                            driving_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'driving_time', 'Baseline','vehicle_schedule_stats')
+                            driving_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'driving_time', 'Optimisation','vehicle_schedule_stats')
+
+                            depot_pull_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'depot_pull_time', 'Baseline','crew_schedule_stats')
+                            depot_pull_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'depot_pull_time', 'Optimisation','crew_schedule_stats')
+
+                            sign_on_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'sign_on_time', 'Baseline','crew_schedule_stats')
+                            sign_on_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'sign_on_time', 'Optimisation','crew_schedule_stats')
+
+                            sign_off_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'sign_off_time', 'Baseline','crew_schedule_stats')
+                            sign_off_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'sign_off_time', 'Optimisation','crew_schedule_stats')
+
+                            changeover_count_sum_ba = create_generic_time_stat_list(json_data_list_ba,'changeover_count', 'Baseline', 'crew_schedule_stats')
+                            changeover_count_sum_op = create_generic_time_stat_list(json_data_list_op,'changeover_count', 'Baseline', 'crew_schedule_stats')
+                            standby_time_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'standby_time', 'Baseline', 'crew_schedule_stats')
+                            standby_time_sum_op = create_generic_time_stat_list(json_data_list_op, 'standby_time', 'Baseline', 'crew_schedule_stats')
+                            algo_cost_sum_ba = create_generic_time_stat_list(json_data_list_ba,'algorithmic_cost' , 'Baseline', 'crew_schedule_stats')
+                            algo_cost_sum_op = create_generic_time_stat_list(json_data_list_op,'algorithmic_cost' , 'Baseline', 'crew_schedule_stats')
+
+                            
+
+
+
+
+
+                            def get_pvr(json_data_list, string, key_val):
+
+                                try:
+                                # List to store the results
+                                    result = max(d['service']['stats'][key_val][string] for d in json_data_list)
+                                except KeyError:
+                                    result = 0
+                                    st.warning(f'We have had to assume this {string} is 0 due to key not being found')
+
+                                return  result
+
+                            pvr_max = get_pvr(json_data_list_op, 'pvr', 'vehicle_schedule_stats')
+
+                            schedule_id_list = [item['scheduleId'] for item in json_data_list_ba]
+
+                            
+
+                            def api_header_response_tp(token, domain_name, schedule_id_list):
+                                api_call_headers = {'Authorization': 'Bearer ' + token}
+                                for i in range(len(schedule_id_list)):
+                                    api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedule/{schedule_id_list[i]}?needStats=true', headers=api_call_headers, verify=False)
+                                    get_json = api_call_response.json()
+                                    if 'status' not in get_json:
+                                        return get_json
+                                        break
+                                return None
+                            
+                            get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
+
+                        
+
+                            depot_item_ba = get_depot_from_api(get_json_tp)
+
+                            dict_depot, stop_name ,lat, long = get_stop_details_from_depot_id(get_json_tp, depot_item_ba)
+
+                            
                 
 
-                       
 
+                                                    # initialize Nominatim API
 
-                        spread_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'length', 'Baseline','crew_schedule_stats')
-                        spread_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'length', 'Optimisation','crew_schedule_stats')
+                            def get_county_from_coords(lat, long):
+                                geolocator = Nominatim(user_agent="geoapiExercises")
+                                # Latitude & Longitude input
+                                Latitude = str(lat)
+                                Longitude = str(long)
+                                location = geolocator.reverse(Latitude+","+Longitude)
+                                address = location.raw['address']
+                                # traverse the data
+                            
+                                country = address.get('country', '')
+                                return country
 
-                        attendance_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'attendance_time', 'Baseline','crew_schedule_stats')
-                        attendance_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'attendance_time', 'Optimisation','crew_schedule_stats')
+                            country = get_county_from_coords(lat, long)
 
+                            
 
+                            
 
-                        driving_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'driving_time', 'Baseline','vehicle_schedule_stats')
-                        driving_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'driving_time', 'Optimisation','vehicle_schedule_stats')
+                            region = get_region_from_country(emea_str, 'EMEA', country)
 
-                        depot_pull_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'depot_pull_time', 'Baseline','crew_schedule_stats')
-                        depot_pull_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'depot_pull_time', 'Optimisation','crew_schedule_stats')
+                            
 
-                        sign_on_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'sign_on_time', 'Baseline','crew_schedule_stats')
-                        sign_on_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'sign_on_time', 'Optimisation','crew_schedule_stats')
+                            
+                            
 
-                        sign_off_time_list_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'sign_off_time', 'Baseline','crew_schedule_stats')
-                        sign_off_time_list_sum_op = create_generic_time_stat_list(json_data_list_op, 'sign_off_time', 'Optimisation','crew_schedule_stats')
+                            #TODO: Implement paid break totals into these 
+                            # Query api for other stats we can leverage to present to the user
 
-                        changeover_count_sum_ba = create_generic_time_stat_list(json_data_list_ba,'changeover_count', 'Baseline', 'crew_schedule_stats')
-                        changeover_count_sum_op = create_generic_time_stat_list(json_data_list_op,'changeover_count', 'Baseline', 'crew_schedule_stats')
-                        standby_time_sum_ba = create_generic_time_stat_list(json_data_list_ba, 'standby_time', 'Baseline', 'crew_schedule_stats')
-                        standby_time_sum_op = create_generic_time_stat_list(json_data_list_op, 'standby_time', 'Baseline', 'crew_schedule_stats')
-                        algo_cost_sum_ba = create_generic_time_stat_list(json_data_list_ba,'algorithmic_cost' , 'Baseline', 'crew_schedule_stats')
-                        algo_cost_sum_op = create_generic_time_stat_list(json_data_list_op,'algorithmic_cost' , 'Baseline', 'crew_schedule_stats')
+                            
+                            #Get the index you wish to post the data to for the gsheet
+                            get_post_row_index = len(data)+2
 
+                            #entry for a row has to be inserted as a list,
+                            # ALL data into sheet has not been formatted, that happens when querying the data as easier to transform at endpoint
+                            insert_entry = [project_name, project_id_ba, schedule_URL_baseline, 
+                            duty_count_list_sum_ba, paid_time_list_sum_ba, avg_paid_time_ba, 
+                            platform_time_list_sum_ba, schedule_URL_optimisation, duty_count_list_sum_op, paid_time_list_sum_op, 
+                            avg_paid_time_op, platform_time_list_sum_op, eff_diff, duty_count_diff, pt_diff,  domain_name_ba, client_instance, optibus_id_ba, paid_break_sum_ba, paid_break_sum_op, split_count_list_sum_ba, split_count_list_sum_op, stop_name, lat, long, country, region, spread_list_sum_ba, spread_list_sum_op,
+                            attendance_time_list_sum_ba,
+                            attendance_time_list_sum_op,
+                            driving_time_list_sum_ba,
+                            driving_time_list_sum_op,
+                            depot_pull_time_list_sum_ba,
+                            depot_pull_time_list_sum_op,
+                            sign_on_time_list_sum_ba,
+                            sign_on_time_list_sum_op,
+                            sign_off_time_list_sum_ba,
+                            sign_off_time_list_sum_op, 
+                            dataset_id_ba, 
+                            pvr_max, 
+                            changeover_count_sum_ba, 
+                            changeover_count_sum_op, 
+                            standby_time_sum_ba, standby_time_sum_op, 
+                            algo_cost_sum_ba, 
+                            algo_cost_sum_op
+                                                    ]
+
+                            #Info 
+                            st.success(f'Inserted the following record: **{project_name}**')
+
+                            #Create a record to present to the user of what has been submitted to the gsheet (almost like a reciept)
+                            present_dict = {
+                                'Project Name': [project_name], 
+                                'Project ID': [project_id_ba], 
+                                'Baseline URL':[schedule_URL_baseline], 
+                                'Baseline Duty Count': [duty_count_list_sum_ba], 
+                                'Baseline Paid Time': [paid_time_list_sum_ba], 
+                                'Baseline Av. Paid Time': [avg_paid_time_ba], 
+                                'Baseline Platform Time': [platform_time_list_sum_ba],
+                                'Optimisation URL': [schedule_URL_optimisation],
+                                'Optimisation Duty Count': [duty_count_list_sum_op], 
+                                'Optimisation Paid Time': [paid_time_list_sum_op],
+                                'Optimisation Av. Paid Time': [avg_paid_time_op], 
+                                'Optimisation Platform Time': [platform_time_list_sum_op], 
+                                'Efficiency Difference': [eff_diff], 
+                                'Duty Couunt Difference': [duty_count_diff],
+                                'Paid Time Difference': [pt_diff],
+                                'Domain': [domain_name_ba],
+                                'Client': [client_instance],
+                                'OptibusId': [optibus_id_ba], 
+                                'Baseline Paid Break':[paid_break_sum_ba], 
+                                'Optimisation Paid Break':[paid_break_sum_op], 
+                                'Baseline Split Count': [split_count_list_sum_ba], 
+                                'Optimisation Split Count': [split_count_list_sum_op],
+                                'Depot Name': [stop_name], 
+                                'Latitude':[lat], 
+                                'Longitude':[long], 
+                                'Country': [country], 
+                                'Region': [region], 
+                                'Spread for BA':[spread_list_sum_ba], 
+                                'Spread for OP':[spread_list_sum_op], 
+                                'Attendance for BA':[attendance_time_list_sum_ba], 
+                                'Attendance for OP':[attendance_time_list_sum_op]
+                                #TODO: present rest of variables
+                            }
+                            #Present this as a dataframe (easy to read)
+                            st.dataframe(pd.DataFrame(data = present_dict), use_container_width=True)
+
+                            #Insert the row into the googlesheet 
+                            sheet.insert_row(insert_entry, get_post_row_index)
                         
 
-
-
-
-
-                        def get_pvr(json_data_list, string, key_val):
-
-                            try:
-                            # List to store the results
-                                result = max(d['service']['stats'][key_val][string] for d in json_data_list)
-                            except KeyError:
-                                result = 0
-                                st.warning(f'We have had to assume this {string} is 0 due to key not being found')
-
-                            return  result
-
-                        pvr_max = get_pvr(json_data_list_op, 'pvr', 'vehicle_schedule_stats')
-
-                        schedule_id_list = [item['scheduleId'] for item in json_data_list_ba]
-
-                        
-
-                        def api_header_response_tp(token, domain_name, schedule_id_list):
-                            api_call_headers = {'Authorization': 'Bearer ' + token}
-                            for i in range(len(schedule_id_list)):
-                                api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedule/{schedule_id_list[i]}?needStats=true', headers=api_call_headers, verify=False)
-                                get_json = api_call_response.json()
-                                if 'status' not in get_json:
-                                    return get_json
-                                    break
-                            return None
-                        
-                        get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
-
-                      
-
-                        depot_item_ba = get_depot_from_api(get_json_tp)
-
-                        dict_depot, stop_name ,lat, long = get_stop_details_from_depot_id(get_json_tp, depot_item_ba)
-
-                        
             
-
-
-                                                # initialize Nominatim API
-
-                        def get_county_from_coords(lat, long):
-                            geolocator = Nominatim(user_agent="geoapiExercises")
-                            # Latitude & Longitude input
-                            Latitude = str(lat)
-                            Longitude = str(long)
-                            location = geolocator.reverse(Latitude+","+Longitude)
-                            address = location.raw['address']
-                            # traverse the data
-                        
-                            country = address.get('country', '')
-                            return country
-
-                        country = get_county_from_coords(lat, long)
-
-                        
-
-                        
-
-                        region = get_region_from_country(emea_str, 'EMEA', country)
-
-                        
-
-                        
-                        
-
-                        #TODO: Implement paid break totals into these 
-                        # Query api for other stats we can leverage to present to the user
-
-                        
-                        #Get the index you wish to post the data to for the gsheet
-                        get_post_row_index = len(data)+2
-
-                        #entry for a row has to be inserted as a list,
-                        # ALL data into sheet has not been formatted, that happens when querying the data as easier to transform at endpoint
-                        insert_entry = [project_name, project_id_ba, schedule_URL_baseline, 
-                        duty_count_list_sum_ba, paid_time_list_sum_ba, avg_paid_time_ba, 
-                        platform_time_list_sum_ba, schedule_URL_optimisation, duty_count_list_sum_op, paid_time_list_sum_op, 
-                        avg_paid_time_op, platform_time_list_sum_op, eff_diff, duty_count_diff, pt_diff,  domain_name_ba, client_instance, optibus_id_ba, paid_break_sum_ba, paid_break_sum_op, split_count_list_sum_ba, split_count_list_sum_op, stop_name, lat, long, country, region, spread_list_sum_ba, spread_list_sum_op,
-attendance_time_list_sum_ba,
-attendance_time_list_sum_op,
-driving_time_list_sum_ba,
-driving_time_list_sum_op,
-depot_pull_time_list_sum_ba,
-depot_pull_time_list_sum_op,
-sign_on_time_list_sum_ba,
-sign_on_time_list_sum_op,
-sign_off_time_list_sum_ba,
-sign_off_time_list_sum_op, 
-dataset_id_ba, 
-pvr_max, 
-changeover_count_sum_ba, 
-changeover_count_sum_op, 
-standby_time_sum_ba, standby_time_sum_op, 
-algo_cost_sum_ba, 
-algo_cost_sum_op
-                        ]
-
-                        #Info 
-                        st.success(f'Inserted the following record: **{project_name}**')
-
-                        #Create a record to present to the user of what has been submitted to the gsheet (almost like a reciept)
-                        present_dict = {
-                            'Project Name': [project_name], 
-                            'Project ID': [project_id_ba], 
-                            'Baseline URL':[schedule_URL_baseline], 
-                            'Baseline Duty Count': [duty_count_list_sum_ba], 
-                            'Baseline Paid Time': [paid_time_list_sum_ba], 
-                            'Baseline Av. Paid Time': [avg_paid_time_ba], 
-                            'Baseline Platform Time': [platform_time_list_sum_ba],
-                            'Optimisation URL': [schedule_URL_optimisation],
-                            'Optimisation Duty Count': [duty_count_list_sum_op], 
-                            'Optimisation Paid Time': [paid_time_list_sum_op],
-                            'Optimisation Av. Paid Time': [avg_paid_time_op], 
-                            'Optimisation Platform Time': [platform_time_list_sum_op], 
-                            'Efficiency Difference': [eff_diff], 
-                            'Duty Couunt Difference': [duty_count_diff],
-                            'Paid Time Difference': [pt_diff],
-                            'Domain': [domain_name_ba],
-                            'Client': [client_instance],
-                            'OptibusId': [optibus_id_ba], 
-                            'Baseline Paid Break':[paid_break_sum_ba], 
-                            'Optimisation Paid Break':[paid_break_sum_op], 
-                            'Baseline Split Count': [split_count_list_sum_ba], 
-                            'Optimisation Split Count': [split_count_list_sum_op],
-                            'Depot Name': [stop_name], 
-                            'Latitude':[lat], 
-                            'Longitude':[long], 
-                            'Country': [country], 
-                            'Region': [region], 
-                            'Spread for BA':[spread_list_sum_ba], 
-                            'Spread for OP':[spread_list_sum_op], 
-                            'Attendance for BA':[attendance_time_list_sum_ba], 
-                            'Attendance for OP':[attendance_time_list_sum_op]
-                            #TODO: present rest of variables
-                        }
-                        #Present this as a dataframe (easy to read)
-                        st.dataframe(pd.DataFrame(data = present_dict), use_container_width=True)
-
-                        #Insert the row into the googlesheet 
-                        sheet.insert_row(insert_entry, get_post_row_index)
-                       
-
-        
 
         with st.expander('**Update Schedule From Record**', expanded=False):
 
@@ -1940,6 +2313,8 @@ with tab2:
                                 domain_dataframe[algo_cols[i]] = domain_dataframe[algo_cols[i]].round(0).astype(int)
 
 
+                        
+
 
                         domain_dataframe[count_columns] = domain_dataframe[count_columns].astype(int)
                         domain_dataframe = domain_dataframe.reset_index(drop=True)
@@ -1950,8 +2325,15 @@ with tab2:
                         expander.caption('Ignore the Average value for Expected Efficiency as it is only a value as it is equal to the total')
                         expander.write(domain_dataframe)
                         domain_dataframe = domain_dataframe.fillna('')
+
+
+                        #FIXED = Attribute error being called upon every excel file rerun
                         
                         if file_type == 'XLSX':
+
+                            
+
+                            
 
                             buffer = BytesIO()
                             with ExcelWriter(buffer,engine='xlsxwriter') as writer:
@@ -2002,6 +2384,10 @@ with tab2:
                             data=buffer,
                             file_name= f"{file_title}.xlsx",
                             mime="application/vnd.ms-excel")
+
+                            #except: 
+                                #AttributeError = st.warning('Maximum limit of Selections is **26** for downloading an Excel file, you have selected over this number')
+                                
 
                         if file_type == 'CSV':
                             buffer = BytesIO()
