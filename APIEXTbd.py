@@ -20,6 +20,7 @@ import pydeck as pdk
 import random
 import string
 # import module
+import  streamlit_toggle as tog
 from geopy.geocoders import Nominatim
 import streamlit_nested_layout
 import matplotlib
