@@ -1129,7 +1129,7 @@ try:
                                         optibus_id_op, dataset_id_op = get_optibus_id(token_optimisation, domain_name_op, schedule_id_op)
                                         #If daraset_id in records it appends it to other_Df
                                         if [d for d in data if d['Dataset ID'] == dataset_id_ba]:
-                                            other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'{dataset_id_ba} exists'},ignore_index=True)
+                                            other_df = other_df.append({'Project Name': project_name, 'Baseline URL': schedule_URL_baseline, 'Optimisation URL': schedule_URL_optimisation, 'Reason': f'Dataset: {dataset_id_ba} already exists in records'},ignore_index=True)
                                         else:
                                             
                                             get_services_json_ba = api_services_response(token_baseline, domain_name_ba, optibus_id_ba)
