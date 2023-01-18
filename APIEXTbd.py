@@ -1410,7 +1410,7 @@ try:
 
                                                     if not other_df.empty:
                                                         skipped_element = other_df.iat[-1, 2]
-                                                        reason = other_df.iat[-1, 3]
+                                                        reason = f'- Reason: {other_df.iat[-1, 3]}'
                                                         
                                                     else:
                                                         skipped_element = ''
@@ -1418,7 +1418,7 @@ try:
 
                                                     bar.progress((index+1)/len(batch_df))
                                                     with iterate.container():
-                                                        st.info(f"Processing Schedules - {project_name} - **{index+1}** of {len(batch_df)} - **{round(((index+1)/(len(batch_df)))*100, 0)} %**  - (**{len(other_df)}** Schedules skipped: {skipped_element} - Reason: {reason})")
+                                                        st.info(f"Processing Schedules - {project_name} - **{index+1}** of {len(batch_df)} - **{round(((index+1)/(len(batch_df)))*100, 0)} %**  - (**{len(other_df)}** Schedules skipped: {skipped_element} {reason})")
                                                    
                 
 
