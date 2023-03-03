@@ -1061,12 +1061,14 @@ try:
                 with colt1:
                     if batch_mode == True: 
                         info = 'Batch Import'
+
                     else:
                         info = 'Single Import'
                     st.info(f'You are in **{info}** Mode')
                 #batch_mode = st.checkbox('Batch Upload Mode')
                 if batch_mode == True:
                     with st.form('Batch Upload form'):
+                        st.info('Please upload an excel file with the following format: ')
                         schedule_links_file = st.file_uploader('Upload your schedule links here', type='xlsx')
                         
                         submit_file = st.form_submit_button('Submit')
