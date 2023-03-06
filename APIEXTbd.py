@@ -1756,7 +1756,6 @@ try:
                                 
                                 get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
 
-                                st.write(get_json_tp)
 
                                 depot_item_ba = get_depot_from_api(get_json_tp)
 
