@@ -1755,6 +1755,8 @@ try:
                                     return None
                                 
                                 get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
+                                if get_json_tp is None:
+                                    get_json_tp = api_header_response_tp(token_optimisation, domain_name_op, schedule_id_list)
 
                                 depot_item_ba = get_depot_from_api(get_json_tp)
 
