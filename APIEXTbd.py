@@ -1751,8 +1751,6 @@ try:
                                         api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedule/{schedule_id_list[i]}?needStats=true', headers=api_call_headers, verify=False)
                                         get_json = api_call_response.json()
                                         if 'status' not in get_json:
-                                            if get_json is None:
-
                                             return get_json
                                             break
                                     return None
