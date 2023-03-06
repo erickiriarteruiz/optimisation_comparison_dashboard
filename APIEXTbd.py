@@ -1740,7 +1740,8 @@ try:
 
                                 pvr_max = get_pvr(json_data_list_op, 'pvr', 'vehicle_schedule_stats')
 
-                                schedule_id_list = [item['scheduleId'] for item in json_data_list_ba]
+                                schedule_id_list_ba = [item['scheduleId'] for item in json_data_list_ba]
+                                schedule_id_list_op = [item['scheduleId'] for item in json_data_list_op]
 
                                 
 
@@ -1750,13 +1751,15 @@ try:
                                         api_call_response = requests.get(f'https://{domain_name}.optibus.co/api/v2/schedule/{schedule_id_list[i]}?needStats=true', headers=api_call_headers, verify=False)
                                         get_json = api_call_response.json()
                                         if 'status' not in get_json:
+                                            if get_json is None:
+
                                             return get_json
                                             break
                                     return None
                                 
-                                get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
+                                get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list_ba)
                                 if get_json_tp is None:
-                                    get_json_tp = api_header_response_tp(token_optimisation, domain_name_op, schedule_id_list)
+                                    get_json_tp = api_header_response_tp(token_optimisation, domain_name_op, schedule_id_list_op)
 
                                 depot_item_ba = get_depot_from_api(get_json_tp)
 
