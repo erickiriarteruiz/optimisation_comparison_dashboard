@@ -1756,7 +1756,6 @@ try:
                                 
                                 get_json_tp = api_header_response_tp(token_baseline, domain_name_ba, schedule_id_list)
 
-
                                 depot_item_ba = get_depot_from_api(get_json_tp)
 
                                 dict_depot, stop_name ,lat, long = get_stop_details_from_depot_id(get_json_tp, depot_item_ba)
